@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Ansible
+*.retry
+
+# Kolla passwords (generate locally; don't commit)
+kolla/passwords.yml
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

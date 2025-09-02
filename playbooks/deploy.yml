@@ -1,0 +1,50 @@
+---
+# Deploy OpenStack with Kolla-Ansible
+
+- hosts: localhost
+  connection: local
+  tasks:
+    - name: Ensure etc/kolla dir exists (for post-deploy artifacts)
+      file:
+        path: etc/kolla
+        state: directory
+
+    - name: Generate Kolla passwords (idempotent)
+      command: kolla-genpwd -p kolla/passwords.yml
+      args:
+        chdir: "{{ playbook_dir }}/../kolla"
+      changed_when: false
+
+    - name: Kolla bootstrap servers
+      command: >
+        kolla-ansible -i {{ playbook_dir }}/../inventory/multinode.ini
+        bootstrap-servers
+        -e @{{ playbook_dir }}/../kolla/globals.yml
+        -e @{{ playbook_dir }}/../kolla/passwords.yml
+
+    - name: Prechecks
+      command: >
+        kolla-ansible -i {{ playbook_dir }}/../inventory/multinode.ini
+        prechecks
+        -e @{{ playbook_dir }}/../kolla/globals.yml
+        -e @{{ playbook_dir }}/../kolla/passwords.yml
+
+    - name: Deploy
+      command: >
+        kolla-ansible -i {{ playbook_dir }}/../inventory/multinode.ini
+        deploy
+        -e @{{ playbook_dir }}/../kolla/globals.yml
+        -e @{{ playbook_dir }}/../kolla/passwords.yml
+
+    - name: Post-deploy (drops admin-openrc.sh and clouds.yaml)
+      command: >
+        kolla-ansible post-deploy
+        -e @{{ playbook_dir }}/../kolla/globals.yml
+        -e @{{ playbook_dir }}/../kolla/passwords.yml
+
+    - name: Copy admin-openrc.sh locally for convenience
+      copy:
+        src: /etc/kolla/admin-openrc.sh
+        dest: "{{ playbook_dir }}/../etc/kolla/admin-openrc.sh"
+        remote_src: yes
+      ignore_errors: yes

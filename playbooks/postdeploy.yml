@@ -1,0 +1,7 @@
+---
+# Optional extra post-deploy steps / configs can be added here.
+- hosts: localhost
+  connection: local
+  tasks:
+    - debug:
+        msg: "Post-deploy placeholder."

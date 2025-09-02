@@ -1,0 +1,89 @@
+---
+# Bootstrap base OS prereqs (Rocky/EL-friendly) and create lab storage/bridges
+
+- hosts: all
+  become: yes
+  tasks:
+    - name: Ensure base packages are present
+      ansible.builtin.package:
+        name:
+          - jq
+          - lvm2
+          - chrony
+          - iproute
+          - iptables
+          - ebtables
+          - bridge-utils
+          - net-tools
+        state: present
+
+    - name: Ensure kernel modules are loaded
+      ansible.builtin.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+
+    - name: Set sysctl for bridging and forwarding
+      ansible.builtin.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_set: yes
+        reload: yes
+      loop:
+        - { name: net.bridge.bridge-nf-call-iptables, value: 1 }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: 1 }
+        - { name: net.ipv4.ip_forward, value: 1 }
+        - { name: net.ipv6.conf.all.forwarding, value: 1 }
+
+    - name: Set SELinux to permissive (lab convenience)
+      ansible.builtin.command: setenforce 0
+      failed_when: false
+      changed_when: false
+      when: ansible_selinux is defined and ansible_selinux.status == "enabled"
+
+    - name: Persist SELinux permissive
+      ansible.builtin.replace:
+        path: /etc/selinux/config
+        regexp: '^SELINUX=enforcing'
+        replace: 'SELINUX=permissive'
+      when: ansible_selinux is defined
+
+    - name: Disable firewalld for lab (optional)
+      ansible.builtin.service:
+        name: firewalld
+        state: stopped
+        enabled: no
+      failed_when: false
+
+    - name: Create provider bridge (prov0) if missing
+      ansible.builtin.command: ip link add name prov0 type bridge
+      args:
+        creates: /sys/class/net/prov0
+      register: add_bridge
+      failed_when: add_bridge.rc not in [0, 2]
+      changed_when: add_bridge.rc == 0
+
+    - name: Bring up provider bridge
+      ansible.builtin.command: ip link set dev prov0 up
+      register: up_bridge
+      failed_when: up_bridge.rc not in [0]
+      changed_when: false
+
+- hosts: control
+  become: yes
+  tasks:
+    - name: Create loop-backed file for Cinder VG (lab only)
+      ansible.builtin.shell: |
+        set -e
+        if [ ! -f /var/lib/cinder-volumes.img ]; then
+          fallocate -l 120G /var/lib/cinder-volumes.img
+          LOOPDEV=$(losetup -f)
+          losetup "$LOOPDEV" /var/lib/cinder-volumes.img
+          pvcreate "$LOOPDEV"
+          vgcreate cinder-volumes "$LOOPDEV"
+        fi
+      args:
+        executable: /bin/bash
