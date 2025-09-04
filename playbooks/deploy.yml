@@ -1,50 +1,109 @@
 ---
-# Deploy OpenStack with Kolla-Ansible
+# Deploy OpenStack with Kolla-Ansible (no need for /etc/kolla on the host)
 
 - hosts: localhost
   connection: local
+  vars:
+    kolla_cfg_dir: "{{ playbook_dir }}/../kolla"
+    inventory_file: "{{ playbook_dir }}/../inventory/multinode.ini"
+    globals_file: "{{ kolla_cfg_dir }}/globals.yml"
+    passwords_file: "{{ kolla_cfg_dir }}/passwords.yml"
+
   tasks:
-    - name: Ensure etc/kolla dir exists (for post-deploy artifacts)
+    - name: Ensure local artifacts dir exists (for post-deploy copies)
       file:
-        path: etc/kolla
+        path: "{{ playbook_dir }}/../etc/kolla"
         state: directory
 
+    - name: Ensure kolla config dir exists in repo
+      file:
+        path: "{{ kolla_cfg_dir }}"
+        state: directory
+
+    - stat:
+        path: "{{ globals_file }}"
+      register: globals_stat
+
+    - name: Ensure globals.yml exists (create empty if you haven’t made one yet)
+      copy:
+        dest: "{{ globals_file }}"
+        content: ""
+      when: not globals_stat.stat.exists
+
     - name: Generate Kolla passwords (idempotent)
-      command: kolla-genpwd -p kolla/passwords.yml
-      args:
-        chdir: "{{ playbook_dir }}/../kolla"
+      command: kolla-genpwd -p {{ passwords_file }}
       changed_when: false
 
+    - name: Ensure /etc/kolla exists
+      become: yes
+      file:
+        path: /etc/kolla
+        state: directory
+        mode: '0755'
+
+    - name: Link globals.yml into /etc/kolla
+      become: yes
+      file:
+        src: "{{ globals_file }}"
+        dest: /etc/kolla/globals.yml
+        state: link
+        force: yes
+
+    - name: Link passwords.yml into /etc/kolla
+      become: yes
+      file:
+        src: "{{ passwords_file }}"
+        dest: /etc/kolla/passwords.yml
+        state: link
+        force: yes
+
+    # Make sure the Kolla collections/roles are installed (fixes: openstack.kolla.baremetal not found)
+    - name: Install kolla-ansible Galaxy dependencies (collections & roles)
+      command: kolla-ansible install-deps
+
     - name: Kolla bootstrap servers
+      environment:
+        KOLLA_CONFIG: "{{ kolla_cfg_dir }}"
       command: >
-        kolla-ansible -i {{ playbook_dir }}/../inventory/multinode.ini
+        kolla-ansible -i {{ inventory_file }}
         bootstrap-servers
-        -e @{{ playbook_dir }}/../kolla/globals.yml
-        -e @{{ playbook_dir }}/../kolla/passwords.yml
+          -e CONFIG_DIR={{ kolla_cfg_dir }}
+          -e @{{ globals_file }}
+          -e @{{ passwords_file }}
 
     - name: Prechecks
+      environment:
+        KOLLA_CONFIG: "{{ kolla_cfg_dir }}"
       command: >
-        kolla-ansible -i {{ playbook_dir }}/../inventory/multinode.ini
+        kolla-ansible -i {{ inventory_file }}
         prechecks
-        -e @{{ playbook_dir }}/../kolla/globals.yml
-        -e @{{ playbook_dir }}/../kolla/passwords.yml
+          -e CONFIG_DIR={{ kolla_cfg_dir }}
+          -e @{{ globals_file }}
+          -e @{{ passwords_file }}
 
     - name: Deploy
+      environment:
+        KOLLA_CONFIG: "{{ kolla_cfg_dir }}"
       command: >
-        kolla-ansible -i {{ playbook_dir }}/../inventory/multinode.ini
+        kolla-ansible -i {{ inventory_file }}
         deploy
-        -e @{{ playbook_dir }}/../kolla/globals.yml
-        -e @{{ playbook_dir }}/../kolla/passwords.yml
+          -e CONFIG_DIR={{ kolla_cfg_dir }}
+          -e @{{ globals_file }}
+          -e @{{ passwords_file }}
 
     - name: Post-deploy (drops admin-openrc.sh and clouds.yaml)
+      environment:
+        KOLLA_CONFIG: "{{ kolla_cfg_dir }}"
       command: >
         kolla-ansible post-deploy
-        -e @{{ playbook_dir }}/../kolla/globals.yml
-        -e @{{ playbook_dir }}/../kolla/passwords.yml
+          -e CONFIG_DIR={{ kolla_cfg_dir }}
+          -e @{{ globals_file }}
+          -e @{{ passwords_file }}
 
     - name: Copy admin-openrc.sh locally for convenience
       copy:
-        src: /etc/kolla/admin-openrc.sh
+        src: "{{ kolla_cfg_dir }}/admin-openrc.sh"
         dest: "{{ playbook_dir }}/../etc/kolla/admin-openrc.sh"
         remote_src: yes
       ignore_errors: yes
+

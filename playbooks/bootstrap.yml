@@ -15,6 +15,10 @@
           - ebtables
           - bridge-utils
           - net-tools
+          - keepalived
+          - python3-pip
+          - python3-setuptools
+          - python3-docker
         state: present
 
     - name: Ensure kernel modules are loaded
@@ -57,6 +61,39 @@
         state: stopped
         enabled: no
       failed_when: false
+
+    - name: Ensure chrony is installed and enabled
+      ansible.builtin.package:
+        name: chrony
+        state: present
+
+    - name: Configure chrony pools (public UK pool example)
+      ansible.builtin.copy:
+        dest: /etc/chrony.conf
+        content: |
+          pool 0.uk.pool.ntp.org iburst
+          pool 1.uk.pool.ntp.org iburst
+          pool 2.uk.pool.ntp.org iburst
+          pool 3.uk.pool.ntp.org iburst
+          driftfile /var/lib/chrony/drift
+          makestep 1.0 3
+          rtcsync
+          keyfile /etc/chrony.keys
+          leapsectz right/UTC
+          logdir /var/log/chrony
+      notify: restart chronyd
+
+    - name: Ensure chronyd is running
+      ansible.builtin.service:
+        name: chronyd
+        state: started
+        enabled: true
+
+  handlers:
+    - name: restart chronyd
+      ansible.builtin.service:
+        name: chronyd
+        state: restarted
 
     - name: Create provider bridge (prov0) if missing
       ansible.builtin.command: ip link add name prov0 type bridge
