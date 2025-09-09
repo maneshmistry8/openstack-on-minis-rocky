@@ -28,7 +28,6 @@ cinder_volume_group: "cinder-volumes"
 cinder_lvm_type: "thin"
 cinder_lvm_thin_pool_name: "cinder-volumes-pool"
 
-
 # Trim extras for a small lab
 enable_barbican: "no"
 enable_ceilometer: "no"

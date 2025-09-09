@@ -116,7 +116,7 @@
       ansible.builtin.shell: |
         set -e
         if [ ! -f /var/lib/cinder-volumes.img ]; then
-          fallocate -l 120G /var/lib/cinder-volumes.img
+          fallocate -l 10G /var/lib/cinder-volumes.img
           LOOPDEV=$(losetup -f)
           losetup "$LOOPDEV" /var/lib/cinder-volumes.img
           pvcreate "$LOOPDEV"
